@@ -4,17 +4,10 @@ import { InsertAccount } from "@shared/schema";
 import { supabase } from "@/lib/supabaseClient";
 
 export async function createAccount(accountData: InsertAccount) {
-  const res = await apiFetch("/accounts", {
+  return await apiFetch("/accounts", {
     method: "POST",
     body: JSON.stringify(accountData),
   });
-
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.message || "Failed to create account");
-  }
-
-  return res.json();
 }
 
 
@@ -56,9 +49,18 @@ export async function apiFetch<T = any>(path: string, options: RequestInit = {})
     headers
   });
 
+  console.log(`API Request: ${options.method || 'GET'} ${API_BASE_URL}/api/v1${path} - Status: ${response.status}`);
+
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`API Error: ${response.status} ${error}`);
+    let errorMessage;
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error?.message || errorData.message || `HTTP ${response.status}`;
+    } catch {
+      errorMessage = await response.text() || `HTTP ${response.status}`;
+    }
+    console.error(`API Error: ${response.status} ${errorMessage}`);
+    throw new Error(`API Error: ${response.status} ${errorMessage}`);
   }
 
   return response.json();
@@ -89,17 +91,10 @@ export async function exchangePlaidPublicToken(publicToken: string, accountId: n
  * @param accountId - The ID of the account to sync transactions for
  */
 export async function syncTransactions(accountId: number) {
-  const res = await apiFetch(`/transactions/sync`, {
+  return await apiFetch(`/transactions/sync`, {
     method: "POST",
     body: JSON.stringify({ accountId }),
   });
-
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.message || "Failed to sync transactions");
-  }
-
-  return res.json();
 }
 
 
@@ -107,14 +102,7 @@ export async function syncTransactions(accountId: number) {
 import { BudgetCategory } from "@shared/schema";
 
 export async function getBudgetCategories(): Promise<BudgetCategory[]> {
-  const res = await apiFetch("/budget-categories");
-
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.message || "Failed to fetch budget categories");
-  }
-
-  return res.json();
+  return await apiFetch("/budget-categories");
 }
 
 // Add more backend API helpers here as needed

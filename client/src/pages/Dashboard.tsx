@@ -23,8 +23,14 @@ function Dashboard() {
   const { data: accounts, isLoading: isLoadingAccounts, error: accountsError } = useQuery<Account[]>({
     queryKey: ['/accounts'],
     queryFn: async () => {
-      const res = await apiFetch('/accounts');
-      return res.json();
+      try {
+        const result = await apiFetch('/accounts');
+        console.log('Accounts API response:', result);
+        return result;
+      } catch (error) {
+        console.error('Error fetching accounts:', error);
+        throw error;
+      }
     }
   });
   
@@ -36,8 +42,14 @@ function Dashboard() {
   const { data: budgetCategories, isLoading: isLoadingBudgets, error: budgetsError } = useQuery<BudgetCategory[]>({
     queryKey: ['/budget-categories'],
     queryFn: async () => {
-      const res = await apiFetch('/budget-categories');
-      return res.json();
+      try {
+        const result = await apiFetch('/budget-categories');
+        console.log('Budget categories API response:', result);
+        return result;
+      } catch (error) {
+        console.error('Error fetching budget categories:', error);
+        throw error;
+      }
     }
   });
   
@@ -49,8 +61,14 @@ function Dashboard() {
   const { data: recentTransactions, isLoading: isLoadingTransactions, error: transactionsError } = useQuery<Transaction[]>({
     queryKey: ['/transactions/recent'],
     queryFn: async () => {
-      const res = await apiFetch('/transactions/recent');
-      return res.json();
+      try {
+        const result = await apiFetch('/transactions/recent');
+        console.log('Transactions API response:', result);
+        return result;
+      } catch (error) {
+        console.error('Error fetching recent transactions:', error);
+        throw error;
+      }
     }
   });
   

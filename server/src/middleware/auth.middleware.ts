@@ -32,34 +32,54 @@ export const authMiddleware = async (
     res: Response,
     next: NextFunction
 ) => {
+    const requestId = req.headers['x-request-id'] || `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
     try {
-        console.log('Authorization Header:', req.headers.authorization);
-        console.log('Incoming Headers:', req.headers);
-
         const authHeader = req.headers.authorization;
 
         if (!authHeader) {
-            console.error('Authorization header is missing.');
             throw new UnauthorizedError('Authorization header is required.');
         }
 
         if (!authHeader.startsWith('Bearer ')) {
-            console.error('Authorization header is malformed:', authHeader);
             throw new UnauthorizedError('Authorization header must start with "Bearer".');
         }
 
         const token = authHeader.split(' ')[1];
         if (!token) {
-            console.error('Token is missing in the Authorization header.');
             throw new UnauthorizedError('Token is required.');
         }
 
-        // Verify the token using the JWKS
+        // Check JWT algorithm to determine verification method
+        let tokenAlgorithm = 'unknown';
+        try {
+            const headerPart = token.split('.')[0];
+            const decodedHeader = JSON.parse(Buffer.from(headerPart, 'base64').toString());
+            tokenAlgorithm = decodedHeader.alg;
+            
+            // Use symmetric verification for HS256 tokens
+            if (tokenAlgorithm === 'HS256') {
+                const jwt = require('jsonwebtoken');
+                const payload = jwt.verify(token, config.SUPABASE_JWT_SECRET) as SupabaseJwtPayload;
+                
+                // Attach user info to the request
+                const authReq = req as AuthRequest;
+                authReq.user = {
+                    id: payload.sub,
+                    email: payload.email,
+                    role: payload.role,
+                };
+
+                return next();
+            }
+        } catch (decodeError) {
+            console.error(`[${requestId}] Failed to decode JWT header:`, decodeError);
+        }
+
+        // Fallback to JWKS verification for asymmetric algorithms
         const { payload } = await jwtVerify(token, JWKS, {
             issuer: 'https://lwnkjhtiljspretoxrru.supabase.co/auth/v1',
         });
-
-        console.log('JWT Payload:', payload);
 
         // Attach user info to the request
         const authReq = req as AuthRequest;
@@ -71,19 +91,7 @@ export const authMiddleware = async (
 
         next();
     } catch (error) {
-        console.error('JWT Verification Error:', error);
-
-        if (error instanceof Error) {
-            if (error.message.includes('ERR_JWKS_NO_MATCHING_KEY')) {
-                console.error('No matching key found in JWKS for the token.');
-            } else if (error.message.includes('ERR_JWT_EXPIRED')) {
-                console.error('JWT has expired.');
-            } else if (error.message.includes('ERR_JWT_INVALID')) {
-                console.error('JWT is invalid.');
-            } else {
-                console.error('Unknown JWT verification error:', error.message);
-            }
-        }
+        console.error(`[${requestId}] JWT verification failed:`, error instanceof Error ? error.message : error);
 
         if (error instanceof UnauthorizedError) {
             next(error);

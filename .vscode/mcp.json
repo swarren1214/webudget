@@ -1,0 +1,13 @@
+{
+	"servers": {
+		"workrail": {
+			"command": "npx",
+			"args": [
+				"-y",
+				"@exaudeus/workrail"
+			],
+			"type": "stdio"
+		}
+	},
+	"inputs": []
+}
