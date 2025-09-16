@@ -103,7 +103,7 @@ const LoginPage: React.FC = () => {
 	};
 
 	return (
-		<div className="min-h-screen flex flex-col bg-big-grinch">
+		<div className="min-h-screen flex flex-col bg-gradient-to-r from-bigGrinch to-littleGrinch">
 			<div className="flex flex-1 items-center justify-center">
 				<div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md mx-4">
 					<div className="flex flex-col items-center mb-6">
@@ -137,7 +137,7 @@ const LoginPage: React.FC = () => {
 						{success && <div className="text-green-600 text-sm text-center">Login successful!</div>}
 						<button
 							type="submit"
-							className="w-full py-2 px-4 bg-big-grinch text-white rounded-lg font-semibold hover:bg-blue-700 transition"
+							className="w-full py-2 px-4 bg-gradient-to-r from-bigGrinch to-littleGrinch text-white rounded-lg font-semibold hover:bg-blue-700 transition"
 							disabled={loading}
 						>
 							{loading ? 'Signing in...' : 'Sign In'}

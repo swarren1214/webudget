@@ -54,9 +54,13 @@ export const exchangePublicTokenHandler = async (
       throw new UnauthorizedError('User not authenticated');
     }
 
-    const { publicToken } = req.body;
+    const { publicToken, accountId } = req.body;
     if (!publicToken) {
       throw new ValidationError('publicToken is required');
+    }
+
+    if (!accountId) {
+      throw new ValidationError('accountId is required');
     }
 
     // Insert Plaid item into Supabase

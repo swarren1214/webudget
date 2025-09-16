@@ -45,7 +45,7 @@ function Accounts() {
     },
     onSuccess: (account) => {
       setSelectedAccountId(account.id);
-      setShowConnectModal(true);
+      // Don't show modal for main flow - we'll open Plaid directly
     },
     onError: () => {
       toast({
@@ -94,8 +94,42 @@ function Accounts() {
     },
   });
 
-  const handleConnectAccount = () => {
-    if (ready) open();
+  const handleConnectAccount = async () => {
+    try {
+      // Step 1: Create account first (this was the missing step!)
+      const accountData: InsertAccount = {
+        name: `New Account ${Date.now()}`, // Temporary name, user can edit later
+        type: 'checking', // Default type, will be updated from Plaid data
+        balance: 0, // Will be updated from Plaid data
+        institutionName: 'Pending', // Will be updated from Plaid data
+        accountNumber: 'Pending', // Will be updated from Plaid data
+      } as InsertAccount; // Type assertion since backend will add userId from auth
+
+      // Create the account and wait for completion
+      const newAccount = await createAccountMutation.mutateAsync(accountData);
+      
+      // Step 2: Account is created, selectedAccountId is set, now open Plaid
+      if (ready && newAccount?.id) {
+        // The selectedAccountId should be set by now, but let's be safe
+        if (!selectedAccountId) {
+          setSelectedAccountId(newAccount.id);
+        }
+        open();
+      } else if (!ready) {
+        toast({
+          title: "Error", 
+          description: "Plaid is not ready. Please wait a moment and try again.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Failed to create account before Plaid connection:', error);
+      toast({
+        title: "Error",
+        description: "Failed to prepare account for connection. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
   
   return (

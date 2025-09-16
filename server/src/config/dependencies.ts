@@ -52,6 +52,10 @@ export class DependencyContainer {
         return this.repositoryFactory.getBackgroundJobRepository();
     }
 
+    getInstitutionRepository() {
+        return this.repositoryFactory.getInstitutionRepository();
+    }
+
     createUnitOfWork() {
         return this.repositoryFactory.createUnitOfWork();
     }

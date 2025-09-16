@@ -20,6 +20,7 @@
     "@supabase/supabase-js": "^2.52.1",
     "@types/express-jwt": "^6.0.4",
     "@types/node": "^24.0.10",
+    "@types/uuid": "^10.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
@@ -33,6 +34,7 @@
     "pino-pretty": "^11.0.0",
     "plaid": "^25.0.0",
     "prom-client": "^15.1.0",
+    "uuid": "^11.1.0",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0"
   },

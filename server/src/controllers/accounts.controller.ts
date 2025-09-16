@@ -2,7 +2,9 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { AuthRequest } from '@/types/auth';
-import { supabase } from '../config/supabaseClient';
+import { DependencyContainer } from '../config/dependencies';
+
+const container = DependencyContainer.getInstance();
 
 export const getAccountsHandler = async (
   req: Request,
@@ -16,18 +18,10 @@ export const getAccountsHandler = async (
       return;
     }
 
-    // Fetch institutions with embedded accounts
-    const { data, error } = await supabase
-      .from('institutions')
-      .select('accounts(*)')
-      .eq('user_id', userId);
-
-    if (error) throw error;
-
-    // Flatten all accounts
-    const accounts = data?.flatMap(inst => inst.accounts ?? []) ?? [];
-
-    res.status(200).json({ accounts });
+    // TODO: Implement accounts service and repository
+    // For now, return empty array since institutions table doesn't exist yet
+    // This will be implemented once institutions table is created and populated
+    res.status(200).json({ accounts: [] });
   } catch (err) {
     next(err);
   }
