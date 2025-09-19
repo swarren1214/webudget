@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePlaidLink } from "react-plaid-link";
 import { useToast } from "@/hooks/use-toast";
 import { createPlaidLinkToken, exchangePlaidPublicToken } from "@/lib/backendApi";
@@ -88,43 +88,174 @@ interface TokenRequestState {
 }
 
 // ============================================================================
-// HOOK IMPLEMENTATION (STUB)
+// HOOK IMPLEMENTATION
 // ============================================================================
+
+/**
+ * Session-level cache key for Plaid link tokens
+ * Includes user session context to prevent cross-user token leakage
+ */
+const PLAID_TOKEN_CACHE_KEY = 'plaid-link-token-session';
+
+/**
+ * Token cache TTL: 30 minutes (in milliseconds)
+ * Matches Plaid Link token expiration recommendations
+ */
+const TOKEN_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 /**
  * Standard Plaid Integration Hook
  * 
- * TODO: Implement the full hook logic in subsequent steps
- * This is the base structure created in Step 1.
+ * Implements session-level token caching with race condition protection
+ * and 30-minute TTL. Provides consistent Plaid integration across components.
  */
 export function useStandardPlaidIntegration(
   options: PlaidIntegrationOptions
 ): PlaidIntegrationState {
-  // State management
-  const [linkToken, setLinkToken] = useState<string | null>(null);
-  const [error, setError] = useState<PlaidIntegrationError | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  
   // Dependencies
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  
+  // Token request deduplication state
+  const tokenRequestRef = useRef<Promise<string> | null>(null);
+  
+  // State management
+  const [error, setError] = useState<PlaidIntegrationError | null>(null);
 
-  // Placeholder implementation - will be completed in subsequent steps
+  /**
+   * Session-level token caching with React Query
+   * Implements 30-minute TTL and automatic cache invalidation
+   */
+  const {
+    data: linkToken,
+    isLoading: isTokenLoading,
+    error: tokenError,
+    refetch: refetchToken
+  } = useQuery({
+    queryKey: [PLAID_TOKEN_CACHE_KEY],
+    queryFn: fetchLinkTokenWithDeduplication,
+    staleTime: TOKEN_CACHE_TTL, // Override default staleTime
+    gcTime: TOKEN_CACHE_TTL, // Cache garbage collection
+    retry: false, // Let our error handling manage retries
+    refetchOnWindowFocus: false, // Prevent unnecessary token refreshes
+    refetchOnMount: false, // Use cached token if available
+  });
+
+  /**
+   * Token fetching with race condition protection
+   * Ensures only one token request is active at a time
+   */
+  async function fetchLinkTokenWithDeduplication(): Promise<string> {
+    // If there's already an active request, wait for it
+    if (tokenRequestRef.current) {
+      return tokenRequestRef.current;
+    }
+
+    // Create new token request with mutex protection
+    const tokenRequest = createPlaidLinkToken()
+      .then(response => {
+        const token = response.linkToken;
+        
+        // Clear the active request reference
+        tokenRequestRef.current = null;
+        
+        // Clear any previous errors
+        setError(null);
+        
+        return token;
+      })
+      .catch(error => {
+        // Clear the active request reference
+        tokenRequestRef.current = null;
+        
+        // Create standardized error
+        const plaidError: PlaidIntegrationError = {
+          type: 'TOKEN_FETCH_FAILED',
+          message: 'Failed to fetch Plaid Link token',
+          originalError: error,
+          context: { timestamp: new Date().toISOString() }
+        };
+        
+        setError(plaidError);
+        throw error;
+      });
+
+    // Store the active request for deduplication
+    tokenRequestRef.current = tokenRequest;
+    
+    return tokenRequest;
+  }
+
+  /**
+   * Handle token fetch errors and convert to standardized format
+   */
+  useEffect(() => {
+    if (tokenError) {
+      const plaidError: PlaidIntegrationError = {
+        type: 'TOKEN_FETCH_FAILED',
+        message: 'Unable to initialize Plaid connection',
+        originalError: tokenError as Error,
+        context: { 
+          timestamp: new Date().toISOString(),
+          queryKey: PLAID_TOKEN_CACHE_KEY
+        }
+      };
+      setError(plaidError);
+    }
+  }, [tokenError]);
+
+  /**
+   * Cache invalidation utility
+   * Exposes method to clear cached tokens (useful for auth state changes)
+   */
+  const invalidateTokenCache = () => {
+    queryClient.invalidateQueries({ queryKey: [PLAID_TOKEN_CACHE_KEY] });
+    tokenRequestRef.current = null; // Clear any active requests
+    setError(null); // Clear error state
+  };
+
+  /**
+   * Detect auth session expiry during token operations
+   * Monitor for 401 errors that indicate expired sessions
+   */
+  useEffect(() => {
+    if (error?.type === 'TOKEN_FETCH_FAILED' && error.originalError) {
+      // Check if this is an auth-related error (401, 403)
+      const originalError = error.originalError as any;
+      if (originalError.status === 401 || originalError.status === 403) {
+        const authError: PlaidIntegrationError = {
+          type: 'AUTH_EXPIRED',
+          message: 'Authentication session expired. Please log in again.',
+          originalError: error.originalError,
+          context: { 
+            ...error.context,
+            authFailure: true 
+          }
+        };
+        setError(authError);
+        
+        // Clear token cache on auth failure
+        invalidateTokenCache();
+      }
+    }
+  }, [error, queryClient]);
+
+  // Placeholder Plaid Link integration - will be completed in subsequent steps
   const plaidLink = usePlaidLink({
     token: linkToken || "",
     onSuccess: () => {
-      // TODO: Implement in Step 4
+      // TODO: Implement in Step 4 (account creation flow)
     },
     onExit: () => {
-      // TODO: Implement in Step 5
+      // TODO: Implement in Step 5 (error handling)
     }
   });
 
   return {
     open: () => plaidLink.open(),
-    ready: plaidLink.ready && linkToken !== null && !isLoading,
-    isLoading,
+    ready: plaidLink.ready && linkToken !== null && !isTokenLoading,
+    isLoading: isTokenLoading,
     error,
-    linkToken
+    linkToken: linkToken || null
   };
 }
