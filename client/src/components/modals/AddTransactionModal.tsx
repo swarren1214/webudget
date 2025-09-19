@@ -97,7 +97,7 @@ export default function AddTransactionModal({ open, onOpenChange, onSave, accoun
                 <SelectValue placeholder="Account" />
               </SelectTrigger>
               <SelectContent>
-                {accounts.map(acc => (
+                {Array.isArray(accounts) && accounts.map(acc => (
                   <SelectItem key={acc.id} value={acc.id.toString()}>{acc.name}</SelectItem>
                 ))}
               </SelectContent>

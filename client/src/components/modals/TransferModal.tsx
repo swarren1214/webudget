@@ -152,7 +152,7 @@ const TransferDrawer = ({ isOpen, onClose, accounts }: TransferModalProps) => {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {accounts.map(account => (
+                        {Array.isArray(accounts) && accounts.map(account => (
                           <SelectItem key={account.id} value={account.id.toString()}>
                             {account.name} ({account.accountNumber}) - ${account.balance.toFixed(2)}
                           </SelectItem>
@@ -180,7 +180,7 @@ const TransferDrawer = ({ isOpen, onClose, accounts }: TransferModalProps) => {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {accounts.map(account => (
+                        {Array.isArray(accounts) && accounts.map(account => (
                           <SelectItem key={account.id} value={account.id.toString()}>
                             {account.name} ({account.accountNumber}) - ${account.balance.toFixed(2)}
                           </SelectItem>

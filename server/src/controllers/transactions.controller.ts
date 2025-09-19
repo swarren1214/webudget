@@ -18,8 +18,8 @@ export const getTransactionsHandler = async (
 
     let query = supabase
       .from('transactions')
-      .select('*')
-      .eq('user_id', userId);
+      .select('*, accounts!inner(*, plaid_items!inner(user_id))')
+      .eq('accounts.plaid_items.user_id', userId);
 
     if (account_id) {
       query = query.eq('account_id', account_id as string);

@@ -21,7 +21,7 @@ export const getAccountsHandler = async (
     // TODO: Implement accounts service and repository
     // For now, return empty array since institutions table doesn't exist yet
     // This will be implemented once institutions table is created and populated
-    res.status(200).json({ accounts: [] });
+    res.status(200).json([]);
   } catch (err) {
     next(err);
   }
