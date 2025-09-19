@@ -240,14 +240,124 @@ export function useStandardPlaidIntegration(
     }
   }, [error, queryClient]);
 
-  // Placeholder Plaid Link integration - will be completed in subsequent steps
+  /**
+   * Standard Plaid Link integration with account creation flow
+   * Handles success/error states and provides consistent user feedback
+   */
   const plaidLink = usePlaidLink({
     token: linkToken || "",
-    onSuccess: () => {
-      // TODO: Implement in Step 4 (account creation flow)
+    /**
+     * Handle successful Plaid Link completion
+     * Exchanges public token and creates account association
+     */
+    onSuccess: async (publicToken) => {
+      if (!options.accountId) {
+        const error: PlaidIntegrationError = {
+          type: 'INVALID_ACCOUNT_ID',
+          message: 'No account selected for Plaid connection',
+          context: { 
+            publicToken: '[REDACTED]', // Don't log sensitive data
+            timestamp: new Date().toISOString()
+          }
+        };
+        setError(error);
+        
+        toast({
+          title: "Error",
+          description: "Please select an account before connecting to Plaid.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      try {
+        setError(null); // Clear any previous errors
+        
+        // Exchange public token for access token via backend
+        await exchangePlaidPublicToken(publicToken, options.accountId);
+        
+        // Success notification
+        toast({
+          title: "Success",
+          description: "Account successfully connected.",
+          variant: "default",
+        });
+        
+        // Invalidate accounts query to refresh data (if enabled)
+        if (options.invalidateAccountsQuery !== false) {
+          queryClient.invalidateQueries({ queryKey: ['/accounts'] });
+        }
+        
+        // Call user-provided success callback
+        if (options.onSuccess) {
+          await options.onSuccess(publicToken);
+        }
+        
+      } catch (error) {
+        console.error("Failed to exchange Plaid public token:", error);
+        
+        // Create standardized error
+        const plaidError: PlaidIntegrationError = {
+          type: 'TOKEN_EXCHANGE_FAILED',
+          message: 'Failed to connect account. Please try again.',
+          originalError: error as Error,
+          context: { 
+            accountId: options.accountId,
+            timestamp: new Date().toISOString()
+          }
+        };
+        setError(plaidError);
+        
+        // Error notification
+        toast({
+          title: "Error",
+          description: "Failed to connect account. Please try again.",
+          variant: "destructive",
+        });
+        
+        // Call user-provided error callback
+        if (options.onError) {
+          options.onError(plaidError);
+        }
+      }
     },
-    onExit: () => {
-      // TODO: Implement in Step 5 (error handling)
+    /**
+     * Handle Plaid Link exit events (user cancellation or errors)
+     * Provides appropriate error handling and user feedback
+     */
+    onExit: (error, metadata) => {
+      // User cancelled or there was an exit error
+      if (error) {
+        const plaidError: PlaidIntegrationError = {
+          type: 'NETWORK_ERROR', // or other appropriate type based on error
+          message: error.display_message || 'Plaid connection was interrupted',
+          originalError: error as any,
+          context: { 
+            metadata,
+            timestamp: new Date().toISOString()
+          }
+        };
+        setError(plaidError);
+        
+        // Only show toast for actual errors, not user cancellation
+        if (error.error_code !== 'USER_EXIT') {
+          toast({
+            title: "Connection Issue",
+            description: error.display_message || "There was an issue connecting your account.",
+            variant: "destructive",
+          });
+        }
+        
+        // Call user-provided error callback
+        if (options.onError) {
+          options.onError(plaidError);
+        }
+      }
+      
+      // Call user-provided exit callback
+      if (options.onExit) {
+        options.onExit();
+      }
     }
   });
 
