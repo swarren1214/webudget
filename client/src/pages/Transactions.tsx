@@ -30,7 +30,7 @@ function Transactions() {
   const [selectedTransaction, setSelectedTransaction] = useState<any | null>(null);
   
   // Fetch transactions data
-  const { data: transactions, isLoading: isLoadingTransactions, error: transactionsError } = useQuery<Transaction[]>({
+  const { data: transactions = [], isLoading: isLoadingTransactions, error: transactionsError } = useQuery<Transaction[]>({
     queryKey: ['/transactions'],
   });
   
@@ -101,9 +101,13 @@ function Transactions() {
   });
   
   // Get unique categories from transactions
-  const categories = transactions
-    ? Array.from(new Set(transactions.map(t => t.category).filter((c): c is string => c !== null)))
-    : [];
+  const categories = Array.from(
+    new Set(
+      (transactions || [])
+        .map(t => t.category)
+        .filter((c): c is string => c !== null)
+    )
+  );
   
   // Filter transactions based on search, account, and category
   const filteredTransactions = transactions?.filter(transaction => {
