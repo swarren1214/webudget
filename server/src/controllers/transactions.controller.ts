@@ -16,10 +16,26 @@ export const getTransactionsHandler = async (
 
     const { account_id, start_date, end_date } = req.query;
 
+    // Get all accounts for this user
+    const { data: userAccounts, error: accountsError } = await supabase
+      .from('accounts')
+      .select('id')
+      .eq('user_id', userId);
+
+    if (accountsError) throw accountsError;
+
+    const accountIds = userAccounts?.map((acc: any) => acc.id) || [];
+    
+    if (accountIds.length === 0) {
+      res.status(200).json({ transactions: [] });
+      return;
+    }
+
+    // Get transactions for those accounts
     let query = supabase
       .from('transactions')
-      .select('*, accounts!inner(*, plaid_items!inner(user_id))')
-      .eq('accounts.plaid_items.user_id', userId);
+      .select('*')
+      .in('account_id', accountIds);
 
     if (account_id) {
       query = query.eq('account_id', account_id as string);

@@ -71,10 +71,20 @@ const OnboardingPage: React.FC = () => {
   // usePlaidLink requires a token, so we provide fallback when linkToken is not ready
   const { open, ready } = usePlaidLink({
     token: linkToken || '', // Fallback to empty string when linkToken is null
-    onSuccess: (public_token: string, metadata: any) => {
-      exchangePlaidPublicToken(public_token, 1);
-      setPlaidLinked(true);
-      setStep(step + 1);
+    onSuccess: async (public_token: string, metadata: any) => {
+      console.log('[H1_DEBUG] Plaid onSuccess triggered', { public_token: '[REDACTED]', metadata, timestamp: new Date().toISOString() });
+      
+      try {
+        console.log('[H1_DEBUG] Calling exchangePlaidPublicToken with accountId=1');
+        await exchangePlaidPublicToken(public_token, 1);
+        console.log('[H1_DEBUG] exchangePlaidPublicToken SUCCESS');
+        
+        setPlaidLinked(true);
+        setStep(step + 1);
+      } catch (error) {
+        console.error('[H1_ERROR] exchangePlaidPublicToken FAILED:', error);
+        // TODO: Add user-facing error notification
+      }
     },
   });
 

@@ -32,6 +32,27 @@ function Transactions() {
   // Fetch transactions data
   const { data: transactions = [], isLoading: isLoadingTransactions, error: transactionsError } = useQuery<Transaction[]>({
     queryKey: ['/transactions'],
+    queryFn: async () => {
+      const session = await import('@/lib/supabaseClient').then(m => m.supabase.auth.getSession());
+      const token = session.data?.session?.access_token;
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+      
+      const response = await fetch(`${API_BASE_URL}/api/v1/transactions`, {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : '',
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch transactions');
+      }
+      
+      const data = await response.json();
+      // Backend returns { transactions: [...] }, we need just the array
+      return data.transactions || [];
+    },
   });
   
   // Fetch accounts data for filtering

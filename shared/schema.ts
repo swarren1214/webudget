@@ -14,7 +14,7 @@ import { z } from "zod";
 // --- Account Table ---
 export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
+  userId: uuid("user_id").notNull(),
   name: text("name").notNull(),
   type: text("type").notNull(),
   balance: real("balance").notNull().default(0),
@@ -68,7 +68,7 @@ export type Transaction = typeof transactions.$inferSelect;
 // --- Budget Categories Table ---
 export const budgetCategories = pgTable("budget_categories", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
+  userId: uuid("user_id").notNull(),
   name: text("name").notNull(),
   limit: real("limit").notNull(),
   color: text("color").notNull(),

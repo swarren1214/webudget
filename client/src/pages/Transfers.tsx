@@ -15,12 +15,21 @@ function Transfers() {
   const [showTransferModal, setShowTransferModal] = useState(false);
   
   // Fetch transfers
-  const { data: transfers, isLoading: isLoadingTransfers } = useQuery<Transfer[]>({
-    queryKey: ['/api/transfers'],
+  const { data: transfers = [], isLoading: isLoadingTransfers, error: transfersError } = useQuery<Transfer[]>({
+    queryKey: ['/transfers'],
     queryFn: async () => {
-      const res = await apiFetch('/api/transfers');
-      return res.json();
-    }
+      try {
+        const res = await apiFetch('/transfers');
+        const data = await res.json();
+        // Backend returns { transfers: [...] }, we need just the array
+        return data.transfers || [];
+      } catch (error) {
+        // Transfers endpoint not implemented yet - return empty array
+        console.warn('Transfers endpoint not available:', error);
+        return [];
+      }
+    },
+    retry: false, // Don't retry since endpoint doesn't exist
   });
   
   // Fetch accounts
@@ -28,7 +37,9 @@ function Transfers() {
     queryKey: ['/accounts'],
     queryFn: async () => {
       const res = await apiFetch('/accounts');
-      return res.json();
+      const data = await res.json();
+      // Backend returns { accounts: [...] }, we need just the array
+      return data.accounts || [];
     }
   });
   

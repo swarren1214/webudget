@@ -54,10 +54,15 @@ export async function apiFetch<T = any>(path: string, options: RequestInit = {})
   if (!response.ok) {
     let errorMessage;
     try {
-      const errorData = await response.json();
+      // Clone the response before reading to avoid "Body is disturbed" error
+      const errorData = await response.clone().json();
       errorMessage = errorData.error?.message || errorData.message || `HTTP ${response.status}`;
     } catch {
-      errorMessage = await response.text() || `HTTP ${response.status}`;
+      try {
+        errorMessage = await response.clone().text() || `HTTP ${response.status}`;
+      } catch {
+        errorMessage = `HTTP ${response.status}`;
+      }
     }
     console.error(`API Error: ${response.status} ${errorMessage}`);
     throw new Error(`API Error: ${response.status} ${errorMessage}`);

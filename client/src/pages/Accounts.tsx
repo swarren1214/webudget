@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -16,6 +16,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 function Accounts() {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const selectedAccountIdRef = useRef<number | null>(null); // Use ref to avoid closure issues
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -24,8 +25,7 @@ function Accounts() {
   const { data: accounts, isLoading } = useQuery({
     queryKey: ['/accounts'],
     queryFn: async () => {
-      const res = await apiFetch('/accounts');
-      return res.json();
+      return await apiFetch('/accounts');
     }
   });
 
@@ -33,8 +33,7 @@ function Accounts() {
   const { data: transactions } = useQuery({
     queryKey: ['transactions'],
     queryFn: async () => {
-      const res = await apiFetch('/transactions');
-      return res.json();
+      return await apiFetch('/transactions');
     }
   });
 
@@ -72,11 +71,25 @@ function Accounts() {
   const { open, ready } = usePlaidLink({
     token: linkToken || "",
     onSuccess: async (publicToken) => {
+      // Use ref to get current value, avoiding closure issues
+      const currentAccountId = selectedAccountIdRef.current;
+      
+      console.log('[H1_DEBUG] Plaid onSuccess triggered in Accounts.tsx', {
+        publicToken: '[REDACTED]',
+        selectedAccountId: currentAccountId,
+        timestamp: new Date().toISOString()
+      });
+      
       try {
-        if (selectedAccountId === null) {
+        if (currentAccountId === null) {
+          console.error('[H1_ERROR] selectedAccountId is null in onSuccess');
           throw new Error("No account selected.");
         }
-        await exchangePlaidPublicToken(publicToken, selectedAccountId);
+        
+        console.log('[H1_DEBUG] Calling exchangePlaidPublicToken', { accountId: currentAccountId });
+        await exchangePlaidPublicToken(publicToken, currentAccountId);
+        console.log('[H1_DEBUG] exchangePlaidPublicToken SUCCESS');
+        
         toast({
           title: "Success",
           description: "Account successfully connected.",
@@ -84,7 +97,7 @@ function Accounts() {
         });
         queryClient.invalidateQueries({ queryKey: ['/accounts'] });
       } catch (error) {
-        console.error("Failed to exchange Plaid public token:", error);
+        console.error('[H1_ERROR] Failed to exchange Plaid public token:', error);
         toast({
           title: "Error",
           description: "Failed to connect account. Please try again.",
@@ -95,6 +108,7 @@ function Accounts() {
   });
 
   const handleConnectAccount = async () => {
+    console.log('[H1_DEBUG] handleConnectAccount called');
     try {
       // Step 1: Create account first (this was the missing step!)
       const accountData: InsertAccount = {
@@ -105,17 +119,31 @@ function Accounts() {
         accountNumber: 'Pending', // Will be updated from Plaid data
       } as InsertAccount; // Type assertion since backend will add userId from auth
 
+      console.log('[H1_DEBUG] Creating account with data:', accountData);
+      
       // Create the account and wait for completion
       const newAccount = await createAccountMutation.mutateAsync(accountData);
       
-      // Step 2: Account is created, selectedAccountId is set, now open Plaid
-      if (ready && newAccount?.id) {
-        // The selectedAccountId should be set by now, but let's be safe
-        if (!selectedAccountId) {
-          setSelectedAccountId(newAccount.id);
-        }
+      console.log('[H1_DEBUG] Account created:', { id: newAccount?.id });
+      
+      // Step 2: Set account ID BEFORE opening Plaid (critical for closure)
+      const accountIdToUse = newAccount?.id;
+      if (!accountIdToUse) {
+        console.error('[H1_ERROR] Failed to get account ID from created account');
+        throw new Error('Failed to create account');
+      }
+      
+      // Set selectedAccountId so it's captured in the onSuccess closure
+      setSelectedAccountId(accountIdToUse);
+      selectedAccountIdRef.current = accountIdToUse; // Update ref for closure access
+      console.log('[H1_DEBUG] Set selectedAccountId to:', accountIdToUse);
+      
+      // Step 3: Account is created, selectedAccountId is set, now open Plaid
+      if (ready) {
+        console.log('[H1_DEBUG] Opening Plaid Link');
         open();
-      } else if (!ready) {
+      } else {
+        console.error('[H1_ERROR] Plaid not ready');
         toast({
           title: "Error", 
           description: "Plaid is not ready. Please wait a moment and try again.",
@@ -123,7 +151,7 @@ function Accounts() {
         });
       }
     } catch (error) {
-      console.error('Failed to create account before Plaid connection:', error);
+      console.error('[H1_ERROR] Failed to create account before Plaid connection:', error);
       toast({
         title: "Error",
         description: "Failed to prepare account for connection. Please try again.",

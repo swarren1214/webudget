@@ -6,6 +6,7 @@ import plaidRouter from './plaid.routes';
 import institutionRouter from './institution.routes';
 import transactionsRouter from './transactions.routes';
 import accountsRouter from './accounts.routes';
+import transfersRouter from './transfers.routes';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { asyncHandler } from '../../middleware/error.middleware';
 import { supabase } from '../../config/supabaseClient';
@@ -22,6 +23,7 @@ router.use('/plaid', plaidRouter);
 router.use('/institutions', institutionRouter);
 router.use('/transactions', transactionsRouter);
 router.use('/accounts', accountsRouter);
+router.use('/transfers', transfersRouter);
 
 // Route to fetch all budget categories
 router.get('/budget-categories', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
