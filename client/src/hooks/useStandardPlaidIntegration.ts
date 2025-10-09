@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { usePlaidLink } from "react-plaid-link";
 import { useToast } from "@/hooks/use-toast";
-import { createPlaidLinkToken, exchangePlaidPublicToken } from "@/lib/backendApi";
+import { createPlaidLinkToken, exchangePlaidPublicToken, createAccount } from "@/lib/backendApi";
+import { InsertAccount } from "@shared/schema";
 
 /**
  * Standard Plaid Integration Hook
@@ -35,24 +36,24 @@ import { createPlaidLinkToken, exchangePlaidPublicToken } from "@/lib/backendApi
  * Configuration options for the useStandardPlaidIntegration hook
  */
 export interface PlaidIntegrationOptions {
-  /** The account ID to associate with the connected Plaid item */
-  accountId: number | null;
-  /** Callback fired when Plaid connection succeeds */
-  onSuccess?: (publicToken: string) => void | Promise<void>;
+  /** Callback fired when Plaid connection succeeds with the accountId */
+  onSuccess?: (accountId: number) => void | Promise<void>;
   /** Callback fired when Plaid connection fails */
   onError?: (error: PlaidIntegrationError) => void;
   /** Callback fired when connection is cancelled by user */
   onExit?: () => void;
   /** Whether to automatically invalidate accounts query after success */
   invalidateAccountsQuery?: boolean;
+  /** Whether to automatically create an account before opening Plaid */
+  createAccountFirst?: boolean;
 }
 
 /**
  * State returned by the useStandardPlaidIntegration hook
  */
 export interface PlaidIntegrationState {
-  /** Function to open the Plaid Link modal */
-  open: () => void;
+  /** Function to trigger the account connection flow */
+  connectAccount: () => Promise<void>;
   /** Whether Plaid Link is ready to be opened */
   ready: boolean;
   /** Whether a token request or exchange is in progress */
@@ -110,7 +111,7 @@ const TOKEN_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
  * and 30-minute TTL. Provides consistent Plaid integration across components.
  */
 export function useStandardPlaidIntegration(
-  options: PlaidIntegrationOptions
+  options: PlaidIntegrationOptions = {}
 ): PlaidIntegrationState {
   // Dependencies
   const { toast } = useToast();
@@ -118,6 +119,8 @@ export function useStandardPlaidIntegration(
   
   // Token request deduplication state
   const tokenRequestRef = useRef<Promise<string> | null>(null);
+  const selectedAccountIdRef = useRef<number | null>(null);
+  const isConnectingRef = useRef(false);
   
   // State management
   const [error, setError] = useState<PlaidIntegrationError | null>(null);
@@ -241,6 +244,25 @@ export function useStandardPlaidIntegration(
   }, [error, queryClient]);
 
   /**
+   * Create account mutation for create-first, update-later pattern
+   */
+  const createAccountMutation = useMutation({
+    mutationFn: async (accountData: InsertAccount) => {
+      return createAccount(accountData);
+    },
+    onError: (err: Error) => {
+      console.error('[H1_ERROR] Failed to create account:', err);
+      const plaidError: PlaidIntegrationError = {
+        type: 'NETWORK_ERROR',
+        message: 'Failed to create account',
+        originalError: err,
+      };
+      setError(plaidError);
+      options.onError?.(plaidError);
+    },
+  });
+
+  /**
    * Standard Plaid Link integration with account creation flow
    * Handles success/error states and provides consistent user feedback
    */
@@ -251,12 +273,20 @@ export function useStandardPlaidIntegration(
      * Exchanges public token and creates account association
      */
     onSuccess: async (publicToken) => {
-      if (!options.accountId) {
+      const currentAccountId = selectedAccountIdRef.current;
+      
+      console.log('[H1_DEBUG] Plaid onSuccess triggered', {
+        publicToken: '[REDACTED]',
+        selectedAccountId: currentAccountId,
+        timestamp: new Date().toISOString()
+      });
+      
+      if (!currentAccountId) {
         const error: PlaidIntegrationError = {
           type: 'INVALID_ACCOUNT_ID',
           message: 'No account selected for Plaid connection',
           context: { 
-            publicToken: '[REDACTED]', // Don't log sensitive data
+            publicToken: '[REDACTED]',
             timestamp: new Date().toISOString()
           }
         };
@@ -267,14 +297,20 @@ export function useStandardPlaidIntegration(
           description: "Please select an account before connecting to Plaid.",
           variant: "destructive",
         });
+        
+        options.onError?.(error);
         return;
       }
 
       try {
         setError(null); // Clear any previous errors
         
+        console.log('[H1_DEBUG] Calling exchangePlaidPublicToken', { accountId: currentAccountId });
+        
         // Exchange public token for access token via backend
-        await exchangePlaidPublicToken(publicToken, options.accountId);
+        await exchangePlaidPublicToken(publicToken, currentAccountId);
+        
+        console.log('[H1_DEBUG] exchangePlaidPublicToken SUCCESS');
         
         // Success notification
         toast({
@@ -286,15 +322,16 @@ export function useStandardPlaidIntegration(
         // Invalidate accounts query to refresh data (if enabled)
         if (options.invalidateAccountsQuery !== false) {
           queryClient.invalidateQueries({ queryKey: ['/accounts'] });
+          queryClient.invalidateQueries({ queryKey: ['transactions'] });
         }
         
-        // Call user-provided success callback
+        // Call user-provided success callback with account ID
         if (options.onSuccess) {
-          await options.onSuccess(publicToken);
+          await options.onSuccess(currentAccountId);
         }
         
       } catch (error) {
-        console.error("Failed to exchange Plaid public token:", error);
+        console.error('[H1_ERROR] Failed to exchange Plaid public token:', error);
         
         // Create standardized error
         const plaidError: PlaidIntegrationError = {
@@ -302,7 +339,7 @@ export function useStandardPlaidIntegration(
           message: 'Failed to connect account. Please try again.',
           originalError: error as Error,
           context: { 
-            accountId: options.accountId,
+            accountId: currentAccountId,
             timestamp: new Date().toISOString()
           }
         };
@@ -319,6 +356,9 @@ export function useStandardPlaidIntegration(
         if (options.onError) {
           options.onError(plaidError);
         }
+      } finally {
+        isConnectingRef.current = false;
+        selectedAccountIdRef.current = null;
       }
     },
     /**
@@ -354,6 +394,10 @@ export function useStandardPlaidIntegration(
         }
       }
       
+      // Reset state on exit
+      isConnectingRef.current = false;
+      selectedAccountIdRef.current = null;
+      
       // Call user-provided exit callback
       if (options.onExit) {
         options.onExit();
@@ -361,10 +405,91 @@ export function useStandardPlaidIntegration(
     }
   });
 
+  /**
+   * Main connect account function
+   * Implements create-first, update-later pattern
+   */
+  const connectAccount = useCallback(async () => {
+    // Race condition protection
+    if (isConnectingRef.current) {
+      console.warn('[H1_WARNING] Connection already in progress, ignoring duplicate request');
+      return;
+    }
+
+    // Check if Plaid is ready
+    if (!plaidLink.ready || !linkToken) {
+      const error: PlaidIntegrationError = {
+        type: 'TOKEN_FETCH_FAILED',
+        message: 'Plaid is not ready. Please wait a moment and try again.',
+      };
+      console.error('[H1_ERROR] Plaid not ready', {
+        ready: plaidLink.ready,
+        hasLinkToken: !!linkToken,
+      });
+      setError(error);
+      options.onError?.(error);
+      
+      toast({
+        title: "Error",
+        description: "Plaid is not ready. Please wait a moment and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    isConnectingRef.current = true;
+    setError(null);
+
+    try {
+      // Step 1: Create account first (create-first, update-later pattern)
+      const accountData: InsertAccount = {
+        name: `New Account ${Date.now()}`, // Temporary name
+        type: 'checking', // Default type, will be updated from Plaid
+        balance: 0, // Will be updated from Plaid
+        institutionName: 'Pending', // Will be updated from Plaid
+        accountNumber: 'Pending', // Will be updated from Plaid
+      } as InsertAccount;
+
+      console.log('[H1_DEBUG] Creating account with data:', accountData);
+
+      const newAccount = await createAccountMutation.mutateAsync(accountData);
+
+      console.log('[H1_DEBUG] Account created:', { id: newAccount?.id });
+
+      if (!newAccount?.id) {
+        throw new Error('Failed to create account');
+      }
+
+      // Step 2: Set account ID for closure access
+      selectedAccountIdRef.current = newAccount.id;
+      console.log('[H1_DEBUG] Set selectedAccountId to:', newAccount.id);
+
+      // Step 3: Open Plaid Link
+      console.log('[H1_DEBUG] Opening Plaid Link');
+      plaidLink.open();
+    } catch (err) {
+      const error: PlaidIntegrationError = {
+        type: 'NETWORK_ERROR',
+        message: 'Failed to prepare account for connection. Please try again.',
+        originalError: err as Error,
+      };
+      console.error('[H1_ERROR] Failed to create account before Plaid connection:', err);
+      setError(error);
+      options.onError?.(error);
+      isConnectingRef.current = false;
+      
+      toast({
+        title: "Error",
+        description: "Failed to prepare account for connection. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }, [plaidLink, linkToken, createAccountMutation, options, toast]);
+
   return {
-    open: () => plaidLink.open(),
+    connectAccount,
     ready: plaidLink.ready && linkToken !== null && !isTokenLoading,
-    isLoading: isTokenLoading,
+    isLoading: isTokenLoading || createAccountMutation.isPending,
     error,
     linkToken: linkToken || null
   };

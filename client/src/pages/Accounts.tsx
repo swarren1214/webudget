@@ -1,32 +1,27 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import ConnectAccountModal from "@/components/modals/ConnectAccountModal";
-import { type Account, type InsertAccount } from "@shared/schema";
+import { type Account } from "@shared/schema";
 import { HiPlus } from "react-icons/hi";
-import { createAccount, createPlaidLinkToken, exchangePlaidPublicToken } from "@/lib/backendApi";
-import { useToast } from "@/hooks/use-toast";
-import { usePlaidLink } from "react-plaid-link";
 import { apiFetch } from '@/lib/backendApi';
+import { useToast } from "@/hooks/use-toast";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { useStandardPlaidIntegration } from "@/hooks/useStandardPlaidIntegration";
 
 function Accounts() {
-  const [showConnectModal, setShowConnectModal] = useState(false);
-  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
-  const selectedAccountIdRef = useRef<number | null>(null); // Use ref to avoid closure issues
-  const [linkToken, setLinkToken] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  // Fetch accounts data
-  const { data: accounts, isLoading } = useQuery({
+  // Fetch accounts data with error handling
+  const { data: accounts, isLoading, error: accountsError } = useQuery({
     queryKey: ['/accounts'],
     queryFn: async () => {
       return await apiFetch('/accounts');
-    }
+    },
+    retry: 1,
   });
 
   // Fetch transactions data
@@ -34,140 +29,48 @@ function Accounts() {
     queryKey: ['transactions'],
     queryFn: async () => {
       return await apiFetch('/transactions');
-    }
+    },
+    retry: 1,
   });
 
-  // Create account mutation
-  const createAccountMutation = useMutation({
-    mutationFn: async (accountData: InsertAccount) => {
-      return createAccount(accountData);
+  // Use the standardized Plaid integration hook
+  const { connectAccount, ready, isLoading: isPlaidLoading } = useStandardPlaidIntegration({
+    onSuccess: (accountId) => {
+      console.log('[H1_DEBUG] Account connected successfully:', accountId);
+      toast({
+        title: "Success",
+        description: "Account successfully connected.",
+        variant: "default",
+      });
     },
-    onSuccess: (account) => {
-      setSelectedAccountId(account.id);
-      // Don't show modal for main flow - we'll open Plaid directly
-    },
-    onError: () => {
+    onError: (error) => {
+      console.error('[H1_ERROR] Plaid connection failed:', error);
       toast({
         title: "Error",
-        description: "Failed to create account. Please try again.",
+        description: error.message || "Failed to connect account. Please try again.",
         variant: "destructive",
       });
-    }
-  });
-  
-  useEffect(() => {
-    const fetchLinkToken = async () => {
-      try {
-        const { linkToken } = await createPlaidLinkToken();
-        setLinkToken(linkToken);
-      } catch (error) {
-        console.error("Failed to fetch Plaid Link token from backend API:", error);
-      }
-    };
-
-    fetchLinkToken();
-  }, []);
-
-  const { open, ready } = usePlaidLink({
-    token: linkToken || "",
-    onSuccess: async (publicToken) => {
-      // Use ref to get current value, avoiding closure issues
-      const currentAccountId = selectedAccountIdRef.current;
-      
-      console.log('[H1_DEBUG] Plaid onSuccess triggered in Accounts.tsx', {
-        publicToken: '[REDACTED]',
-        selectedAccountId: currentAccountId,
-        timestamp: new Date().toISOString()
-      });
-      
-      try {
-        if (currentAccountId === null) {
-          console.error('[H1_ERROR] selectedAccountId is null in onSuccess');
-          throw new Error("No account selected.");
-        }
-        
-        console.log('[H1_DEBUG] Calling exchangePlaidPublicToken', { accountId: currentAccountId });
-        await exchangePlaidPublicToken(publicToken, currentAccountId);
-        console.log('[H1_DEBUG] exchangePlaidPublicToken SUCCESS');
-        
-        toast({
-          title: "Success",
-          description: "Account successfully connected.",
-          variant: "default",
-        });
-        queryClient.invalidateQueries({ queryKey: ['/accounts'] });
-      } catch (error) {
-        console.error('[H1_ERROR] Failed to exchange Plaid public token:', error);
-        toast({
-          title: "Error",
-          description: "Failed to connect account. Please try again.",
-          variant: "destructive",
-        });
-      }
     },
   });
 
-  const handleConnectAccount = async () => {
-    console.log('[H1_DEBUG] handleConnectAccount called');
-    try {
-      // Step 1: Create account first (this was the missing step!)
-      const accountData: InsertAccount = {
-        name: `New Account ${Date.now()}`, // Temporary name, user can edit later
-        type: 'checking', // Default type, will be updated from Plaid data
-        balance: 0, // Will be updated from Plaid data
-        institutionName: 'Pending', // Will be updated from Plaid data
-        accountNumber: 'Pending', // Will be updated from Plaid data
-      } as InsertAccount; // Type assertion since backend will add userId from auth
-
-      console.log('[H1_DEBUG] Creating account with data:', accountData);
-      
-      // Create the account and wait for completion
-      const newAccount = await createAccountMutation.mutateAsync(accountData);
-      
-      console.log('[H1_DEBUG] Account created:', { id: newAccount?.id });
-      
-      // Step 2: Set account ID BEFORE opening Plaid (critical for closure)
-      const accountIdToUse = newAccount?.id;
-      if (!accountIdToUse) {
-        console.error('[H1_ERROR] Failed to get account ID from created account');
-        throw new Error('Failed to create account');
-      }
-      
-      // Set selectedAccountId so it's captured in the onSuccess closure
-      setSelectedAccountId(accountIdToUse);
-      selectedAccountIdRef.current = accountIdToUse; // Update ref for closure access
-      console.log('[H1_DEBUG] Set selectedAccountId to:', accountIdToUse);
-      
-      // Step 3: Account is created, selectedAccountId is set, now open Plaid
-      if (ready) {
-        console.log('[H1_DEBUG] Opening Plaid Link');
-        open();
-      } else {
-        console.error('[H1_ERROR] Plaid not ready');
-        toast({
-          title: "Error", 
-          description: "Plaid is not ready. Please wait a moment and try again.",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error('[H1_ERROR] Failed to create account before Plaid connection:', error);
-      toast({
-        title: "Error",
-        description: "Failed to prepare account for connection. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
+  // Show error toast for account loading errors
+  if (accountsError) {
+    toast({
+      title: "Error",
+      description: "Failed to load accounts. Please refresh the page.",
+      variant: "destructive",
+    });
+  }
   
   return (
     <>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-semibold">Accounts</h1>
         <Button 
-          onClick={handleConnectAccount}
+          onClick={connectAccount}
           icon={<HiPlus />}
           iconPosition="left"
+          disabled={!ready || isPlaidLoading}
         >
           Connect Account
         </Button>
@@ -179,6 +82,10 @@ function Accounts() {
           <Skeleton className="h-[150px] w-full" />
           <Skeleton className="h-[150px] w-full" />
         </div>
+      ) : accountsError ? (
+        <div className="text-center py-8">
+          <p className="text-muted-foreground">Failed to load accounts. Please try refreshing the page.</p>
+        </div>
       ) : (
         <div className="grid gap-4">
           {accounts?.map((account: Account) => (
@@ -188,22 +95,14 @@ function Accounts() {
           <Button
             variant="outline"
             className="border-dashed h-[100px] mt-2"
-            onClick={handleConnectAccount}
+            onClick={connectAccount}
+            disabled={!ready || isPlaidLoading}
           >
             <HiPlus className="mr-2 h-5 w-5" />
             Connect New Account
           </Button>
         </div>
       )}
-      
-      <ConnectAccountModal 
-        isOpen={showConnectModal} 
-        onClose={() => {
-          setShowConnectModal(false);
-          setSelectedAccountId(null);
-        }}
-        accountId={selectedAccountId || 0}
-      />
     </>
   );
 }

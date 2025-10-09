@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { usePlaidLink } from 'react-plaid-link';
-import { createPlaidLinkToken, exchangePlaidPublicToken } from '@/lib/backendApi';
 import { supabase } from '@/lib/supabaseClient';
-import { errorLog } from '@/lib/utils';
-import { PlaidErrorBoundary, usePlaidErrorHandler } from '@/components/PlaidErrorBoundary';
 import { useLocation } from 'wouter';
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { useStandardPlaidIntegration } from "@/hooks/useStandardPlaidIntegration";
+import { useToast } from "@/hooks/use-toast";
 
 const OnboardingPage: React.FC = () => {
   const [, navigate] = useLocation();
+  const { toast } = useToast();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -30,71 +29,32 @@ const OnboardingPage: React.FC = () => {
       }
     }
   };
+  
   const [step, setStep] = useState(1);
   const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
   const [plaidLinked, setPlaidLinked] = useState(false);
-  const [linkToken, setLinkToken] = useState<string | null>(null);
 
-  // Error handling for Plaid operations
-  const { handlePlaidError } = usePlaidErrorHandler();
-
-  // Verify session state on component mount
-  useEffect(() => {
-    const checkSession = async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      // Session validation completed
-    };
-    checkSession();
-  }, []);
-
-  // Get link token when step 2 is reached
-  useEffect(() => {
-    if (step === 2 && !linkToken) {
-      const checkSessionBeforeAPI = async () => {
-        const { data: sessionData } = await supabase.auth.getSession();
-
-        // Create Plaid link token
-        try {
-          const data = await createPlaidLinkToken();
-          setLinkToken(data.linkToken);
-        } catch (error) {
-          errorLog('[Onboarding] createPlaidLinkToken FAILED:', error);
-          handlePlaidError(error);
-        }
-      };
-
-      checkSessionBeforeAPI();
-    }
-  }, [step, linkToken]);
-
-  // ✅ BEST PRACTICE: Conditional hook initialization to prevent race conditions
-  // usePlaidLink requires a token, so we provide fallback when linkToken is not ready
-  const { open, ready } = usePlaidLink({
-    token: linkToken || '', // Fallback to empty string when linkToken is null
-    onSuccess: async (public_token: string, metadata: any) => {
-      console.log('[H1_DEBUG] Plaid onSuccess triggered', { public_token: '[REDACTED]', metadata, timestamp: new Date().toISOString() });
-      
-      try {
-        console.log('[H1_DEBUG] Calling exchangePlaidPublicToken with accountId=1');
-        await exchangePlaidPublicToken(public_token, 1);
-        console.log('[H1_DEBUG] exchangePlaidPublicToken SUCCESS');
-        
-        setPlaidLinked(true);
-        setStep(step + 1);
-      } catch (error) {
-        console.error('[H1_ERROR] exchangePlaidPublicToken FAILED:', error);
-        // TODO: Add user-facing error notification
-      }
+  // Use standardized Plaid integration hook
+  const { connectAccount, ready, isLoading: isPlaidLoading } = useStandardPlaidIntegration({
+    onSuccess: (accountId) => {
+      console.log('[Onboarding] Account connected successfully:', accountId);
+      setPlaidLinked(true);
+      setStep(step + 1);
+      toast({
+        title: "Success",
+        description: "Account successfully connected.",
+        variant: "default",
+      });
+    },
+    onError: (error) => {
+      console.error('[Onboarding] Plaid connection failed:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to connect account. Please try again.",
+        variant: "destructive",
+      });
     },
   });
-
-  // ✅ IMMUTABLE STATE: Only consider ready when BOTH conditions are met
-  const isPlaidReady = Boolean(linkToken) && ready;
-
-  // Plaid Link readiness monitoring
-  useEffect(() => {
-    // Monitor link readiness state changes
-  }, [linkToken, ready, isPlaidReady, step]);
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -125,33 +85,17 @@ const OnboardingPage: React.FC = () => {
         );
       case 2:
         return (
-          <PlaidErrorBoundary
-            onError={(error, errorInfo) => {
-              // Additional error reporting could go here
-              // e.g., send to analytics, error tracking service
-              errorLog('[Onboarding] Plaid error boundary triggered:', { error: error.message });
-            }}
-          >
-            <div className="text-center">
-              <h2 className="text-xl font-semibold mb-4">Connect Bank Account</h2>
-              <button
-                onClick={() => {
-                  if (isPlaidReady) {
-                    open();
-                  }
-                }}
-                disabled={!isPlaidReady}
-                className="py-2 px-4 bg-big-grinch text-white rounded-lg font-semibold hover:bg-green-700 transition"
-                style={{
-                  opacity: !isPlaidReady ? 0.5 : 1,
-                  cursor: !isPlaidReady ? 'not-allowed' : 'pointer'
-                }}
-              >
-                {plaidLinked ? 'Account Linked!' : 'Connect with Plaid'}
-                {!isPlaidReady && <span className="ml-2 text-xs">(Loading...)</span>}
-              </button>
-            </div>
-          </PlaidErrorBoundary>
+          <div className="text-center">
+            <h2 className="text-xl font-semibold mb-4">Connect Bank Account</h2>
+            <button
+              onClick={connectAccount}
+              disabled={!ready || isPlaidLoading}
+              className="py-2 px-4 bg-big-grinch text-white rounded-lg font-semibold hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {plaidLinked ? 'Account Linked!' : 'Connect with Plaid'}
+              {isPlaidLoading && <span className="ml-2 text-xs">(Loading...)</span>}
+            </button>
+          </div>
         );
       case 3:
         return (

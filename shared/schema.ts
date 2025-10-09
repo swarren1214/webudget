@@ -27,7 +27,6 @@ export const accounts = pgTable("accounts", {
 });
 
 export const insertAccountSchema = createInsertSchema(accounts).pick({
-  userId: true,
   name: true,
   type: true,
   balance: true,
@@ -37,7 +36,7 @@ export const insertAccountSchema = createInsertSchema(accounts).pick({
   plaidAccessToken: true,
   plaidItemId: true,
   isConnected: true,
-});
+}).partial(); // Make all fields optional since backend will set defaults and userId
 export type InsertAccount = z.infer<typeof insertAccountSchema>;
 export type Account = typeof accounts.$inferSelect;
 

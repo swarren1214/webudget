@@ -8,16 +8,37 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { HiOutlineSearch, HiOutlineFilter } from "react-icons/hi";
 import { Skeleton } from "@/components/ui/skeleton";
-import ConnectAccountModal from "@/components/modals/ConnectAccountModal";
 import TransferModal from "@/components/modals/TransferModal";
 import { apiFetch } from '@/lib/backendApi';
 import { type Account, type BudgetCategory, type Transaction } from "@shared/schema";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { useStandardPlaidIntegration } from "@/hooks/useStandardPlaidIntegration";
+import { useToast } from "@/hooks/use-toast";
 
 function Dashboard() {
-  const [showConnectModal, setShowConnectModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const { toast } = useToast();
+  
+  // Use standardized Plaid integration hook
+  const { connectAccount, ready, isLoading: isPlaidLoading } = useStandardPlaidIntegration({
+    onSuccess: (accountId) => {
+      console.log('[Dashboard] Account connected successfully:', accountId);
+      toast({
+        title: "Success",
+        description: "Account successfully connected.",
+        variant: "default",
+      });
+    },
+    onError: (error) => {
+      console.error('[Dashboard] Plaid connection failed:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to connect account. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
   
   // Fetch accounts data
   const { data: accounts, isLoading: isLoadingAccounts, error: accountsError } = useQuery<Account[]>({
@@ -174,7 +195,7 @@ function Dashboard() {
           ) : (
             <ConnectedAccounts 
               accounts={accounts || []} 
-              onConnectAccount={() => setShowConnectModal(true)} 
+              onConnectAccount={connectAccount}
             />
           )}
         </div>
@@ -190,12 +211,6 @@ function Dashboard() {
       </div>
       
       {/* Modals */}
-      <ConnectAccountModal 
-        isOpen={showConnectModal} 
-        onClose={() => setShowConnectModal(false)} 
-        accountId={0}
-      />
-      
       <TransferModal 
         isOpen={showTransferModal} 
         onClose={() => setShowTransferModal(false)}
